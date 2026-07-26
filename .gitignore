@@ -1,0 +1,21 @@
+# Dependencias
+node_modules/
+
+# Compilacion
+dist/
+build/
+
+# Variables de entorno
+.env
+
+# Logs
+logs/
+*.log
+
+# Esquema GraphQL generado en tiempo de ejecucion
+src/schema.gql
+
+# Editor / Sistema operativo
+.DS_Store
+.idea/
+.vscode/
