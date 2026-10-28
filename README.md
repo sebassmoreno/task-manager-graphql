@@ -1,8 +1,24 @@
-# Task Manager API
+# Task Manager API · GraphQL + NestJS
 
-API GraphQL para la gestión de tareas de proyectos de desarrollo de software, construida con NestJS.
+API GraphQL para gestionar las tareas de proyectos de software: crear, filtrar, mover por estados, etiquetar y eliminar.
+Lo interesante está en cómo se separa lo transversal (logs, auditoría, rendimiento, errores) de la lógica de negocio usando **programación orientada a aspectos**.
 
-## Instalación
+![NestJS](https://img.shields.io/badge/NestJS-E0234E?style=flat-square&logo=nestjs&logoColor=white)
+![GraphQL](https://img.shields.io/badge/GraphQL-E10098?style=flat-square&logo=graphql&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![Winston](https://img.shields.io/badge/logs-Winston-2DD4BF?style=flat-square)
+
+---
+
+## Qué demuestra este proyecto
+
+- **AOP en dos niveles:** decoradores propios que envuelven métodos (`@LogExecution`, `@MeasurePerformance`, `@Audit`) y un interceptor y un filtro globales de NestJS para cada petición GraphQL.
+- **Trazabilidad:** cada consulta o mutación recibe un ID de correlación, así se sigue una petición completa en los logs.
+- **Logging serio con Winston:** consola con colores, `logs/application.log` en JSON y `logs/error.log` solo con errores.
+- **Capas limpias:** resolvers delgados, validación en DTO con `class-validator`, excepciones de dominio y persistencia detrás de un repositorio.
+- **GraphQL code-first:** el esquema se genera solo a partir de las clases TypeScript.
+
+## Cómo correrlo
 
 ```bash
 npm install
@@ -10,47 +26,39 @@ cp .env.example .env
 npm run start:dev
 ```
 
-Servidor disponible en `http://localhost:3000/graphql`
+Abre `http://localhost:3000/graphql` para usar el playground.
 
-## Scripts
-
-| Comando | Descripción |
+| Script | Qué hace |
 |---|---|
-| `npm run start:dev` | Modo desarrollo con recarga automática |
-| `npm run build` | Compila el proyecto |
+| `npm run start:dev` | Desarrollo con recarga automática |
+| `npm run build` | Compila a `dist/` |
 | `npm run start:prod` | Ejecuta la versión compilada |
-| `npm run lint` | Analiza el código |
+| `npm run lint` | Revisa el código con ESLint |
 
-## Entidad Task
+## Modelo de datos
 
-| Campo | Tipo |
+| Campo | Tipo | Descripción |
+|---|---|---|
+| `id` | `ID` | Identificador único (UUID) |
+| `title` | `String` | Título de la tarea |
+| `description` | `String` | Descripción |
+| `status` | `TaskStatus` | `BACKLOG`, `TODO`, `IN_PROGRESS`, `DONE` |
+| `tags` | `[String]` | Etiquetas |
+| `createdAt` / `updatedAt` | `Date` | Fechas de creación y modificación |
+| `assignedUser` | `User` | Responsable |
+| `project` | `Project` | Proyecto al que pertenece |
+
+Los datos viven **en memoria** detrás de cada repositorio. Como la persistencia está aislada, pasar a una base de datos real solo implica reemplazar esa clase, sin tocar servicios ni resolvers.
+
+## Programación orientada a aspectos
+
+### Por método: decoradores propios (`src/common/aop/decorators/`)
+
+| Aspecto | Qué hace |
 |---|---|
-| `id` | `ID` |
-| `title` | `String` |
-| `description` | `String` |
-| `status` | `BACKLOG`, `TODO`, `IN_PROGRESS`, `DONE` |
-| `tags` | `[String]` |
-| `createdAt` | `Date` |
-| `updatedAt` | `Date` |
-| `assignedUser` | `User` |
-| `project` | `Project` |
-
-## Programación Orientada a Aspectos
-
-Los aspectos están en `src/common/aop/`:
-
-**Decoradores** (`decorators/`) — envuelven métodos para añadir comportamiento sin tocar la lógica de negocio:
-
-- `@LogExecution()` — registra entrada, salida, duración y errores
-- `@MeasurePerformance(ms)` — advierte si la operación supera un umbral
-- `@Audit(action, entity)` — deja traza de las operaciones que modifican datos
-
-**Interceptor y filtro** — mecanismos nativos de NestJS registrados globalmente en `AopModule`:
-
-- `GraphqlLoggingInterceptor` — traza cada consulta y mutación con un ID de correlación
-- `GraphqlExceptionFilter` — traduce las excepciones a errores GraphQL uniformes
-
-Ejemplo de uso en `TasksService`:
+| `@LogExecution()` | Registra entrada, salida, duración y errores del método |
+| `@MeasurePerformance(ms)` | Avisa si la operación supera un umbral de tiempo |
+| `@Audit(action, entity)` | Deja traza de las operaciones que modifican datos |
 
 ```ts
 @LogExecution()
@@ -61,50 +69,41 @@ async remove(id: string): Promise<boolean> {
 }
 ```
 
-## Logs
+El método de negocio no tiene ni una línea de log: el comportamiento transversal se añade desde fuera.
 
-Implementados con Winston (`src/common/logger/`). Tres salidas:
+### Por petición: mecanismos de NestJS (`AopModule`)
 
-- Consola, con colores por nivel
-- `logs/application.log` — historial completo en JSON
-- `logs/error.log` — solo errores
+| Aspecto | Qué hace |
+|---|---|
+| `GraphqlLoggingInterceptor` | Traza cada consulta y mutación con un ID de correlación y su duración |
+| `GraphqlExceptionFilter` | Convierte cualquier excepción en un error GraphQL uniforme |
 
-El nivel se configura con `LOG_LEVEL` en el `.env`.
+Los logs usan `safeStringify`, que serializa argumentos y resultados sin romperse ante referencias circulares, `BigInt` o errores.
 
 ## Estructura
 
 ```
 src/
 ├── common/
-│   ├── aop/           Decoradores, interceptor y filtro
-│   ├── logger/        Configuración de Winston
-│   ├── exceptions/    Excepciones de dominio
-│   └── utils/
-├── tasks/
+│   ├── aop/          decoradores, interceptor y filtro
+│   ├── logger/       configuración de Winston
+│   ├── exceptions/   excepciones de dominio
+│   └── utils/        serialización segura
+├── tasks/            resolver, servicio, DTO, entidad, repositorio
 ├── users/
 └── projects/
 ```
 
-## Consultas de ejemplo
-
-```graphql
-query {
-  tasks {
-    id
-    title
-    status
-    tags
-    assignedUser { fullName }
-    project { name }
-  }
-}
-```
+## Ejemplos
 
 ```graphql
 query {
   tasks(filter: { status: IN_PROGRESS, tags: ["aop"] }) {
     id
     title
+    status
+    assignedUser { fullName }
+    project { name }
   }
 }
 ```
@@ -118,37 +117,22 @@ mutation {
     tags: ["docs"]
     assignedUserId: "<uuid>"
     projectId: "<uuid>"
-  }) {
-    id
-    status
-  }
+  }) { id status }
 }
 ```
 
 ```graphql
-mutation {
-  changeTaskStatus(input: { id: "<uuid>", status: IN_PROGRESS }) { id status }
-}
+mutation { changeTaskStatus(input: { id: "<uuid>", status: DONE }) { id status } }
+mutation { addTaskTags(id: "<uuid>", tags: ["urgente"]) { id tags } }
+mutation { deleteTask(id: "<uuid>") }
 ```
 
-```graphql
-mutation {
-  addTaskTags(id: "<uuid>", tags: ["urgente"]) { id tags }
-}
-```
-
-```graphql
-mutation {
-  deleteTask(id: "<uuid>")
-}
-```
-
-Los UUID se obtienen con las consultas `users` y `projects`.
+Los UUID de usuarios y proyectos se obtienen con las consultas `users` y `projects`.
 
 ## GitFlow
 
-Ramas: `main` (estable), `develop` (integración) y `feature/*` (una por funcionalidad, integrada con `--no-ff`). Detalle en [`GITFLOW.md`](./GITFLOW.md).
+`main` (estable), `develop` (integración) y `feature/*` (una rama por funcionalidad). Detalle en [`GITFLOW.md`](./GITFLOW.md).
 
 ---
 
-Sebastián Moreno — Ingeniería Informática
+**Sebastián Moreno** · Ingeniería Informática, UCAB · [LinkedIn](https://www.linkedin.com/in/sebastian-moreno-dev) · [GitHub](https://github.com/sebassmoreno)
